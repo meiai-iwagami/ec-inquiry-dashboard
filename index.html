@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EC問い合わせダッシュボード</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f1f5f9;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text2: #64748b;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08);
+      --radius: 6px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    #app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ===== Header ===== */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      gap: 16px;
+    }
+    header h1 { font-size: 18px; font-weight: 700; white-space: nowrap; }
+    #sync-info {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text2);
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .sync-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 11px;
+    }
+    .settings-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text2);
+    }
+    .settings-btn:hover { background: #f8fafc; }
+
+    /* ===== Filter Bar ===== */
+    #filter-bar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .fg { display: flex; align-items: center; gap: 5px; }
+    .fg label { font-size: 11px; font-weight: 600; color: var(--text2); white-space: nowrap; }
+    .fg select, .fg input {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      background: white;
+      color: var(--text);
+    }
+    .fg select:focus, .fg input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(59,130,246,0.12);
+    }
+    #search-input { width: 180px; }
+    .date-input { width: 130px; }
+
+    /* ===== Main ===== */
+    #main { display: flex; flex: 1; overflow: hidden; }
+    #table-container { flex: 1; overflow: auto; padding: 16px 24px; }
+
+    /* ===== Table ===== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    thead { background: #f8fafc; position: sticky; top: 0; z-index: 1; }
+    th {
+      padding: 9px 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 11px;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 2px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    th:hover { color: var(--text); }
+    th .si { margin-left: 3px; opacity: 0.3; font-size: 10px; }
+    th.sorted .si { opacity: 1; color: var(--primary); }
+    td {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tbody tr { cursor: pointer; }
+    tbody tr:hover td { background: #f8fafc; }
+    tbody tr.selected td { background: #eff6ff; }
+
+    /* ===== Badges ===== */
+    .badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .b-rakuten   { background: #fef2f2; color: #dc2626; }
+    .b-yahoo     { background: #faf5ff; color: #9333ea; }
+    .b-amazon    { background: #fff7ed; color: #ea580c; }
+    .b-open      { background: #eff6ff; color: #2563eb; }
+    .b-completed { background: #f0fdf4; color: #16a34a; }
+    .b-cancel         { background: #fef2f2; color: #dc2626; }
+    .b-order_change   { background: #f5f3ff; color: #7c3aed; }
+    .b-return_refund  { background: #fff7ed; color: #ea580c; }
+    .b-product_question { background: #fefce8; color: #ca8a04; }
+    .b-shipping       { background: #ecfeff; color: #0891b2; }
+    .b-other          { background: #f8fafc; color: #64748b; }
+    .b-unknown        { background: #f8fafc; color: #94a3b8; }
+
+    /* status badges for order detail */
+    .b-processing { background: #fefce8; color: #ca8a04; }
+    .b-shipped    { background: #ecfeff; color: #0891b2; }
+    .b-cancelled  { background: #fef2f2; color: #dc2626; }
+    .b-pending    { background: #fefce8; color: #ca8a04; }
+    .b-paid       { background: #f0fdf4; color: #16a34a; }
+    .b-refunded   { background: #fff7ed; color: #ea580c; }
+    .b-not_shipped { background: #f8fafc; color: #64748b; }
+    .b-delivered  { background: #f0fdf4; color: #16a34a; }
+    .b-returned   { background: #fef2f2; color: #dc2626; }
+
+    /* ===== Pagination ===== */
+    #pagination {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      font-size: 13px;
+      color: var(--text2);
+    }
+    .pages { display: flex; gap: 4px; }
+    .pg {
+      padding: 5px 11px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .pg:hover:not(:disabled) { background: #f1f5f9; border-color: var(--primary); }
+    .pg:disabled { opacity: 0.4; cursor: default; }
+    .pg.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* ===== Detail Panel ===== */
+    #detail-panel {
+      width: 0;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: var(--card);
+      transition: width 0.2s ease;
+    }
+    #detail-panel.open {
+      width: 520px;
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+    }
+    .panel-inner { width: 520px; }
+    .panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      background: var(--card);
+      z-index: 1;
+    }
+    .panel-header h2 { font-size: 15px; font-weight: 700; }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: var(--text2);
+      line-height: 1;
+      padding: 2px 6px;
+    }
+    .close-btn:hover { color: var(--text); }
+    .ps {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ps h3 {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text2);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ig {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 3px 12px;
+      font-size: 13px;
+    }
+    .ig dt { color: var(--text2); font-weight: 500; white-space: nowrap; }
+    .ig dd { word-break: break-all; }
+
+    /* Messages */
+    .msg-list { display: flex; flex-direction: column; gap: 8px; }
+    .msg {
+      padding: 8px 12px;
+      border-radius: 10px;
+      max-width: 90%;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg-c { background: #eff6ff; border: 1px solid #dbeafe; align-self: flex-start; border-bottom-left-radius: 2px; }
+    .msg-s { background: #f0fdf4; border: 1px solid #dcfce7; align-self: flex-end; border-bottom-right-radius: 2px; }
+    .msg-meta { font-size: 11px; color: var(--text2); margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+    .msg-sender { font-weight: 600; }
+    .unread-dot { width: 6px; height: 6px; background: var(--primary); border-radius: 50%; display: inline-block; }
+
+    /* Order items */
+    .oi-table { width: 100%; font-size: 12px; margin-top: 8px; }
+    .oi-table th, .oi-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    .oi-table th { background: #f8fafc; font-weight: 600; }
+    .oi-table td:nth-child(n+3), .oi-table th:nth-child(n+3) { text-align: right; }
+    .totals { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 13px; margin-top: 10px; }
+    .totals .tl { color: var(--text2); text-align: right; }
+    .totals .tv { text-align: right; font-weight: 500; }
+    .totals .gt .tl, .totals .gt .tv {
+      font-weight: 700; font-size: 14px; color: var(--text);
+      border-top: 2px solid var(--border); padding-top: 4px;
+    }
+    .pay-item { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+
+    /* ===== Modal ===== */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal.hidden { display: none; }
+    .modal-box {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 28px 32px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .modal-box h2 { font-size: 17px; margin-bottom: 6px; }
+    .modal-box .desc { font-size: 13px; color: var(--text2); margin-bottom: 18px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+    .field input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+    }
+    .field input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 9px 18px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+    }
+    .btn:hover { background: var(--primary-hover); }
+
+    /* ===== Login Screen ===== */
+    #login-screen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      background: var(--bg);
+    }
+    .login-box {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 380px;
+      max-width: 90vw;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      text-align: center;
+    }
+    .login-box h1 { font-size: 22px; margin-bottom: 8px; }
+    .login-box .desc { font-size: 13px; color: var(--text2); margin-bottom: 24px; }
+    .login-box .google-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 28px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text);
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .login-box .google-btn:hover {
+      border-color: #4285f4;
+      box-shadow: 0 2px 8px rgba(66,133,244,0.18);
+    }
+    .login-box .google-btn svg { width: 20px; height: 20px; }
+    .login-box .login-error {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #dc2626;
+    }
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text2);
+    }
+    .user-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .logout-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #dc2626;
+    }
+    .logout-btn:hover { background: #fef2f2; }
+
+    /* States */
+    .loading, .empty { text-align: center; padding: 48px 20px; color: var(--text2); }
+    .spinner {
+      display: inline-block; width: 22px; height: 22px;
+      border: 3px solid var(--border); border-top-color: var(--primary);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-msg {
+      background: #fef2f2; color: #dc2626;
+      padding: 10px 16px; border-radius: var(--radius);
+      margin: 16px 24px; font-size: 13px;
+    }
+    a { color: var(--primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      header { padding: 10px 16px; }
+      #filter-bar { padding: 8px 16px; }
+      #table-container { padding: 12px 16px; }
+      #detail-panel.open { position: fixed; inset: 0; width: 100%; z-index: 50; }
+      .panel-inner { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<!-- Login Screen -->
+<div id="login-screen" style="display:none;">
+  <div class="login-box">
+    <h1>EC問い合わせダッシュボード</h1>
+    <p class="desc">Google アカウントでログインしてください</p>
+    <button class="google-btn" onclick="loginWithGoogle()">
+      <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Googleでログイン
+    </button>
+    <div id="login-error" class="login-error" style="display:none;"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+
+  <!-- Config Modal -->
+  <div id="config-modal" class="modal hidden">
+    <div class="modal-box">
+      <h2>Supabase 接続設定</h2>
+      <p class="desc">Supabase プロジェクトの URL と anon key を入力してください。<br>データは localStorage に保存されます。</p>
+      <div class="field">
+        <label>Supabase URL</label>
+        <input id="cfg-url" type="url" placeholder="https://xxxxx.supabase.co">
+      </div>
+      <div class="field">
+        <label>Anon Key</label>
+        <input id="cfg-key" type="text" placeholder="eyJhbGciOi...">
+      </div>
+      <button class="btn" onclick="saveConfig()">接続</button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <h1>EC問い合わせダッシュボード</h1>
+    <div id="sync-info">
+      <span id="sync-time"></span>
+      <span id="sync-counts"></span>
+      <button class="settings-btn" onclick="startSync()" id="sync-btn">Yahoo同期</button>
+      <button class="settings-btn" onclick="showConfig()">設定</button>
+      <div class="user-info" id="user-info"></div>
+      <button class="logout-btn" onclick="logout()">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- Filter Bar -->
+  <div id="filter-bar">
+    <div class="fg">
+      <label>プラットフォーム</label>
+      <select id="f-platform" onchange="onFilterChange()">
+        <option value="">全て</option>
+        <option value="rakuten">楽天</option>
+        <option value="yahoo">Yahoo</option>
+        <option value="amazon">Amazon</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>ステータス</label>
+      <select id="f-status" onchange="onFilterChange()">
+        <option value="">全て</option>
+        <option value="open">対応中</option>
+        <option value="completed">完了</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>カテゴリ</label>
+      <select id="f-category" onchange="onFilterChange()">
+        <option value="">全て</option>
+        <option value="cancel">キャンセル</option>
+        <option value="order_change">注文変更</option>
+        <option value="return_refund">返品・返金</option>
+        <option value="product_question">商品質問</option>
+        <option value="shipping">配送</option>
+        <option value="other">その他</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>検索</label>
+      <input id="search-input" type="text" placeholder="顧客名・注文番号..." oninput="onSearchDebounce()">
+    </div>
+    <div class="fg">
+      <label>受信日</label>
+      <input id="f-date-from" class="date-input" type="date" onchange="onFilterChange()">
+      <span style="color:var(--text2)">〜</span>
+      <input id="f-date-to" class="date-input" type="date" onchange="onFilterChange()">
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div id="main">
+    <div id="table-container">
+      <div id="table-area"></div>
+      <div id="pagination"></div>
+    </div>
+    <div id="detail-panel">
+      <div class="panel-inner" id="detail-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Constants
+// ============================================================
+const PAGE_SIZE = 50;
+const CONFIG_KEY = 'ec_dash_config';
+const DEFAULT_URL = 'https://vvmwemdrnfrlenufokdi.supabase.co';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ2bXdlbWRybmZybGVudWZva2RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MDQ2NTMsImV4cCI6MjA4ODE4MDY1M30.9DKFnxaRgkdBckThu2EqbGHuGYmG44GSqc4JEh2AlKM';
+
+const PLAT = {
+  rakuten: '楽天', yahoo: 'Yahoo', amazon: 'Amazon'
+};
+const STAT = {
+  open: '対応中', completed: '完了'
+};
+const CAT = {
+  cancel: 'キャンセル',
+  order_change: '注文変更',
+  return_refund: '返品・返金',
+  product_question: '商品質問',
+  shipping: '配送',
+  other: 'その他',
+  unknown: '不明'
+};
+const ORDER_STAT = {
+  processing: '処理中', shipped: '出荷済', completed: '完了', cancelled: 'キャンセル'
+};
+const PAY_STAT = {
+  pending: '未入金', paid: '入金済', refunded: '返金済', cancelled: 'キャンセル'
+};
+const SHIP_STAT = {
+  not_shipped: '未出荷', shipped: '出荷済', delivered: '配達完了', returned: '返品'
+};
+
+// ============================================================
+// State
+// ============================================================
+let sb = null; // Supabase client
+const S = {
+  page: 0,
+  total: 0,
+  rows: [],       // current page rows (from DB)
+  sort: { col: 'last_updated_at', asc: false },
+  selectedPk: null,
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return esc(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtDateShort(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return esc(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function badge(cls, label) {
+  return `<span class="badge b-${esc(cls)}">${esc(label)}</span>`;
+}
+
+// ============================================================
+// Config
+// ============================================================
+function getConfig() {
+  try { return JSON.parse(localStorage.getItem(CONFIG_KEY)); } catch { return null; }
+}
+
+function showConfig() {
+  const c = getConfig();
+  if (c) {
+    document.getElementById('cfg-url').value = c.url || '';
+    document.getElementById('cfg-key').value = c.key || '';
+  }
+  document.getElementById('config-modal').classList.remove('hidden');
+}
+
+function saveConfig() {
+  const url = document.getElementById('cfg-url').value.trim();
+  const key = document.getElementById('cfg-key').value.trim();
+  if (!url || !key) return alert('URL と Key を入力してください');
+  localStorage.setItem(CONFIG_KEY, JSON.stringify({ url, key }));
+  document.getElementById('config-modal').classList.add('hidden');
+  initApp(url, key);
+}
+
+// ============================================================
+// Supabase Init
+// ============================================================
+function initSupabase(url, key) {
+  sb = supabase.createClient(url, key, {
+    auth: {
+      flowType: 'implicit',
+    },
+  });
+}
+
+async function initApp(url, key) {
+  if (!sb) initSupabase(url, key);
+  document.getElementById('table-area').innerHTML = '<div class="loading"><div class="spinner"></div><p style="margin-top:8px">読み込み中...</p></div>';
+  try {
+    await Promise.all([fetchSyncInfo(), fetchInquiries()]);
+  } catch (e) {
+    document.getElementById('table-area').innerHTML = `<div class="error-msg">接続エラー: ${esc(e.message)}</div>`;
+  }
+}
+
+// ============================================================
+// Data: Sync Info
+// ============================================================
+async function fetchSyncInfo() {
+  // sync_state
+  const { data: syncRows } = await sb.from('sync_state').select('*');
+  // count per platform
+  const { count: totalCount } = await sb.from('inquiries').select('*', { count: 'exact', head: true });
+
+  let lastSync = null;
+  const counts = {};
+  if (syncRows) {
+    for (const r of syncRows) {
+      counts[r.platform] = r.total_count;
+      const t = new Date(r.last_sync_at);
+      if (!lastSync || t > lastSync) lastSync = t;
+    }
+  }
+
+  const timeEl = document.getElementById('sync-time');
+  timeEl.textContent = lastSync ? `最終同期: ${fmtDate(lastSync.toISOString())}` : '';
+
+  const countsEl = document.getElementById('sync-counts');
+  const parts = [];
+  for (const p of ['rakuten', 'yahoo', 'amazon']) {
+    if (counts[p] != null) {
+      parts.push(`<span class="sync-count b-${p}">${PLAT[p]} ${counts[p].toLocaleString()}件</span>`);
+    }
+  }
+  if (totalCount != null) {
+    parts.push(`<span style="font-weight:600">合計 ${totalCount.toLocaleString()}件</span>`);
+  }
+  countsEl.innerHTML = parts.join(' ');
+}
+
+// ============================================================
+// Data: Inquiry List
+// ============================================================
+async function fetchInquiries() {
+  const fp = document.getElementById('f-platform').value;
+  const fs = document.getElementById('f-status').value;
+  const fc = document.getElementById('f-category').value;
+  const sq = document.getElementById('search-input').value.trim();
+  const df = document.getElementById('f-date-from').value;
+  const dt = document.getElementById('f-date-to').value;
+
+  let q = sb.from('inquiries')
+    .select('pk, platform, inquiry_status, received_at, last_updated_at, extracted_at, data', { count: 'exact' });
+
+  if (fp) q = q.eq('platform', fp);
+  if (fs) q = q.eq('inquiry_status', fs);
+  if (fc) q = q.eq('data->inquiry->>normalizedCategory', fc);
+  if (df) q = q.gte('received_at', df + 'T00:00:00');
+  if (dt) q = q.lte('received_at', dt + 'T23:59:59');
+
+  if (sq) {
+    q = q.or(
+      `data->customer->>displayName.ilike.%${sq}%,data->platformIds->>orderNumber.ilike.%${sq}%`
+    );
+  }
+
+  q = q.order(S.sort.col, { ascending: S.sort.asc });
+
+  const offset = S.page * PAGE_SIZE;
+  q = q.range(offset, offset + PAGE_SIZE - 1);
+
+  const { data, count, error } = await q;
+
+  if (error) {
+    document.getElementById('table-area').innerHTML = `<div class="error-msg">クエリエラー: ${esc(error.message)}</div>`;
+    return;
+  }
+
+  S.rows = data || [];
+  S.total = count || 0;
+  renderTable();
+  renderPagination();
+}
+
+// ============================================================
+// Render: Table
+// ============================================================
+const COLUMNS = [
+  { key: 'platform',    label: 'プラットフォーム', sortCol: 'platform' },
+  { key: 'status',      label: 'ステータス',       sortCol: 'inquiry_status' },
+  { key: 'category',    label: 'カテゴリ',         sortCol: null },
+  { key: 'customer',    label: '顧客名',           sortCol: null },
+  { key: 'product',     label: '商品名',           sortCol: null },
+  { key: 'tracking',    label: '配送',             sortCol: null },
+  { key: 'received_at',  label: '受信日',           sortCol: 'received_at' },
+  { key: 'updated_at',   label: '最終更新',         sortCol: 'last_updated_at' },
+  { key: 'extracted_at', label: '取得日時',         sortCol: 'extracted_at' },
+];
+
+function renderTable() {
+  if (S.rows.length === 0) {
+    document.getElementById('table-area').innerHTML = '<div class="empty"><p>該当する問い合わせがありません</p></div>';
+    return;
+  }
+
+  let html = '<table><thead><tr>';
+  for (const c of COLUMNS) {
+    const sorted = c.sortCol && S.sort.col === c.sortCol;
+    const cls = sorted ? ' class="sorted"' : '';
+    const arrow = sorted ? (S.sort.asc ? '&#9650;' : '&#9660;') : '&#9650;';
+    const onclick = c.sortCol ? ` onclick="onSort('${c.sortCol}')"` : '';
+    html += `<th${cls}${onclick}>${esc(c.label)}${c.sortCol ? `<span class="si">${arrow}</span>` : ''}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const row of S.rows) {
+    const d = row.data || {};
+    const cat = d.inquiry?.normalizedCategory || 'unknown';
+    const custName = d.customer?.displayName || '-';
+    const prodName = d.products?.[0]?.name || '-';
+    const sel = row.pk === S.selectedPk ? ' class="selected"' : '';
+
+    html += `<tr${sel} onclick="onRowClick('${esc(row.pk)}')">`;
+    html += `<td>${badge(row.platform, PLAT[row.platform] || row.platform)}</td>`;
+    html += `<td>${badge(row.inquiry_status, STAT[row.inquiry_status] || row.inquiry_status || '-')}</td>`;
+    html += `<td>${badge(cat, CAT[cat] || cat)}</td>`;
+    html += `<td title="${esc(custName)}">${esc(custName)}</td>`;
+    html += `<td title="${esc(prodName)}">${esc(prodName)}</td>`;
+    const sh = d.order?.shipping;
+    const trackInfo = sh?.carrier ? `${esc(sh.carrier)}${sh.trackingNumber ? ' ' + esc(sh.trackingNumber) : ''}` : '-';
+    html += `<td title="${esc(sh?.deliveryStatus || '')}">${trackInfo}</td>`;
+    html += `<td>${fmtDateShort(row.received_at)}</td>`;
+    html += `<td>${fmtDateShort(row.last_updated_at)}</td>`;
+    html += `<td>${fmtDateShort(row.extracted_at)}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('table-area').innerHTML = html;
+}
+
+// ============================================================
+// Render: Pagination
+// ============================================================
+function renderPagination() {
+  const totalPages = Math.ceil(S.total / PAGE_SIZE);
+  if (totalPages <= 1) {
+    document.getElementById('pagination').innerHTML = `<span>${S.total}件</span><span></span>`;
+    return;
+  }
+
+  const from = S.page * PAGE_SIZE + 1;
+  const to = Math.min((S.page + 1) * PAGE_SIZE, S.total);
+
+  let html = `<span>${from}-${to} / ${S.total.toLocaleString()}件</span><div class="pages">`;
+
+  html += `<button class="pg" onclick="goPage(0)" ${S.page === 0 ? 'disabled' : ''}>&laquo;</button>`;
+  html += `<button class="pg" onclick="goPage(${S.page - 1})" ${S.page === 0 ? 'disabled' : ''}>&lsaquo;</button>`;
+
+  // show up to 5 page buttons around current
+  const start = Math.max(0, S.page - 2);
+  const end = Math.min(totalPages - 1, S.page + 2);
+  for (let i = start; i <= end; i++) {
+    html += `<button class="pg${i === S.page ? ' active' : ''}" onclick="goPage(${i})">${i + 1}</button>`;
+  }
+
+  html += `<button class="pg" onclick="goPage(${S.page + 1})" ${S.page >= totalPages - 1 ? 'disabled' : ''}>&rsaquo;</button>`;
+  html += `<button class="pg" onclick="goPage(${totalPages - 1})" ${S.page >= totalPages - 1 ? 'disabled' : ''}>&raquo;</button>`;
+  html += '</div>';
+
+  document.getElementById('pagination').innerHTML = html;
+}
+
+// ============================================================
+// Render: Detail Panel
+// ============================================================
+function renderDetail(d) {
+  if (!d) {
+    document.getElementById('detail-panel').classList.remove('open');
+    return;
+  }
+
+  const inq = d.inquiry || {};
+  const cust = d.customer || {};
+  const pids = d.platformIds || {};
+  const order = d.order;
+  const msgs = d.messages || [];
+  const prods = d.products || [];
+
+  let h = '';
+
+  // Header
+  h += `<div class="panel-header"><h2>問い合わせ詳細</h2><button class="close-btn" onclick="closeDetail()">&times;</button></div>`;
+
+  // 基本情報
+  h += '<div class="ps"><h3>基本情報</h3><dl class="ig">';
+  h += `<dt>ID</dt><dd>${esc(pids.inquiryId || d.pk)}</dd>`;
+  h += `<dt>プラットフォーム</dt><dd>${badge(d.platform, PLAT[d.platform] || d.platform)}</dd>`;
+  if (pids.inquiryUrl) h += `<dt>リンク</dt><dd><a href="${esc(pids.inquiryUrl)}" target="_blank" rel="noopener">問い合わせページ</a></dd>`;
+  h += `<dt>ステータス</dt><dd>${badge(inq.status, STAT[inq.status] || inq.status || '-')}</dd>`;
+  h += `<dt>カテゴリ</dt><dd>${badge(inq.normalizedCategory, CAT[inq.normalizedCategory] || inq.originalCategory || '-')}</dd>`;
+  if (inq.originalCategory) h += `<dt>元カテゴリ</dt><dd>${esc(inq.originalCategory)}</dd>`;
+  h += `<dt>受信日</dt><dd>${fmtDate(inq.receivedAt)}</dd>`;
+  h += `<dt>最終更新</dt><dd>${fmtDate(inq.lastUpdatedAt)}</dd>`;
+  h += `<dt>取得時間</dt><dd>${fmtDate(d.extractedAt)}</dd>`;
+  if (pids.orderNumber) h += `<dt>注文番号</dt><dd>${esc(pids.orderNumber)}</dd>`;
+  h += '</dl></div>';
+
+  // 顧客情報
+  h += '<div class="ps"><h3>顧客情報</h3><dl class="ig">';
+  h += `<dt>氏名</dt><dd>${esc(cust.displayName || '-')}</dd>`;
+  if (cust.nameKana) h += `<dt>カナ</dt><dd>${esc(cust.nameKana)}</dd>`;
+  if (cust.phone) h += `<dt>電話</dt><dd>${esc(cust.phone)}</dd>`;
+  if (cust.email) h += `<dt>メール</dt><dd>${esc(cust.email)}</dd>`;
+  if (cust.address?.text) h += `<dt>住所</dt><dd>${cust.address.postalCode ? '〒' + esc(cust.address.postalCode) + ' ' : ''}${esc(cust.address.text)}</dd>`;
+  if (cust.repeatInfo) h += `<dt>リピート</dt><dd>${esc(cust.repeatInfo)}</dd>`;
+  h += '</dl></div>';
+
+  // 商品情報
+  if (prods.length > 0) {
+    h += '<div class="ps"><h3>商品情報</h3>';
+    for (const p of prods) {
+      h += '<div style="padding:4px 0;border-bottom:1px solid #f1f5f9">';
+      h += `<div style="font-weight:500;font-size:13px">${esc(p.name)}</div>`;
+      if (p.sku) h += `<div style="font-size:11px;color:var(--text2)">SKU: ${esc(p.sku)}</div>`;
+      if (p.asin) h += `<div style="font-size:11px;color:var(--text2)">ASIN: ${esc(p.asin)}</div>`;
+      if (p.url) h += `<div style="font-size:11px"><a href="${esc(p.url)}" target="_blank" rel="noopener">商品ページ</a></div>`;
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+
+  // メッセージ
+  if (msgs.length > 0) {
+    h += '<div class="ps"><h3>メッセージ</h3><div class="msg-list">';
+    for (const m of msgs) {
+      const isCust = m.sender === 'customer';
+      h += `<div class="msg ${isCust ? 'msg-c' : 'msg-s'}">`;
+      h += `<div class="msg-meta">`;
+      h += `<span class="msg-sender">${isCust ? '顧客' : '店舗'}</span>`;
+      h += `<span>${fmtDate(m.timestamp)}</span>`;
+      if (!m.isRead) h += '<span class="unread-dot" title="未読"></span>';
+      h += '</div>';
+      h += esc(m.content);
+      h += '</div>';
+    }
+    h += '</div></div>';
+  }
+
+  // 注文詳細
+  if (order) {
+    h += '<div class="ps"><h3>注文詳細</h3><dl class="ig">';
+    h += `<dt>注文ID</dt><dd>${esc(order.orderId)}</dd>`;
+    if (order.orderDatetime) h += `<dt>注文日</dt><dd>${fmtDate(order.orderDatetime)}</dd>`;
+    if (order.basic?.orderDevice) h += `<dt>デバイス</dt><dd>${esc(order.basic.orderDevice)}</dd>`;
+    if (order.orderDetailUrl) h += `<dt>注文ページ</dt><dd><a href="${esc(order.orderDetailUrl)}" target="_blank" rel="noopener">注文詳細</a></dd>`;
+    h += '</dl>';
+
+    // ステータス3種
+    if (order.statuses) {
+      const st = order.statuses;
+      h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">';
+      h += `<span style="font-size:11px;color:var(--text2)">注文:</span>${badge(st.order, ORDER_STAT[st.order] || st.originalOrderStatus || st.order)}`;
+      h += `<span style="font-size:11px;color:var(--text2)">決済:</span>${badge(st.payment, PAY_STAT[st.payment] || st.originalPaymentStatus || st.payment)}`;
+      h += `<span style="font-size:11px;color:var(--text2)">配送:</span>${badge(st.shipping, SHIP_STAT[st.shipping] || st.originalShippingStatus || st.shipping)}`;
+      h += '</div>';
+    }
+    h += '</div>';
+
+    // 配送情報
+    const sh = order.shipping;
+    if (sh) {
+      const hasShipInfo = sh.method || sh.carrier || sh.trackingNumber || sh.shipDate || sh.deliveryDate || sh.address;
+      if (hasShipInfo) {
+        h += '<div class="ps"><h3>配送情報</h3>';
+        if (d.platform === 'amazon') {
+          h += `<div style="font-size:11px;color:#b45309;background:#fffbeb;padding:4px 8px;border-radius:4px;margin-bottom:8px">※ リアルタイム情報ではありません。取得時点（${fmtDate(d.extractedAt)}）のスナップショットです。</div>`;
+        }
+        h += '<dl class="ig">';
+        if (sh.name) h += `<dt>宛名</dt><dd>${esc(sh.name)}</dd>`;
+        if (sh.address) h += `<dt>住所</dt><dd>${sh.postalCode ? '〒' + esc(sh.postalCode) + ' ' : ''}${esc(sh.address)}</dd>`;
+        if (sh.phone) h += `<dt>電話</dt><dd>${esc(sh.phone)}</dd>`;
+        if (sh.method) h += `<dt>配送方法</dt><dd>${esc(sh.method)}</dd>`;
+        if (sh.carrier) h += `<dt>配送会社</dt><dd>${esc(sh.carrier)}</dd>`;
+        if (sh.trackingNumber) {
+          const tLink = sh.trackingUrl
+            ? `<a href="${esc(sh.trackingUrl)}" target="_blank" rel="noopener">${esc(sh.trackingNumber)}</a>`
+            : esc(sh.trackingNumber);
+          h += `<dt>追跡番号</dt><dd>${tLink}</dd>`;
+        }
+        if (sh.shipDate) h += `<dt>出荷日</dt><dd>${fmtDate(sh.shipDate)}</dd>`;
+        if (sh.deliveryDate) h += `<dt>配達日</dt><dd>${fmtDate(sh.deliveryDate)}</dd>`;
+        if (sh.preferredDate) h += `<dt>希望日</dt><dd>${esc(sh.preferredDate)}</dd>`;
+        if (sh.preferredTime) h += `<dt>希望時間帯</dt><dd>${esc(sh.preferredTime)}</dd>`;
+        if (sh.deliveryStatus) h += `<dt>配送状況</dt><dd>${esc(sh.deliveryStatus)}</dd>`;
+        if (sh.estimatedDeliveryDate) h += `<dt>配達予定</dt><dd>${fmtDate(sh.estimatedDeliveryDate)}</dd>`;
+        if (sh.isFba) h += `<dt>FBA</dt><dd>はい</dd>`;
+        h += '</dl>';
+
+        // 追跡イベント一覧（raw.trackingEvents）
+        const events = d.raw?.trackingEvents;
+        if (events && events.length > 0) {
+          h += '<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">配送履歴</div>';
+          h += '<div style="font-size:12px;border-left:2px solid var(--border);padding-left:12px">';
+          for (const ev of events) {
+            h += '<div style="margin-bottom:8px">';
+            h += `<div style="font-size:11px;color:var(--text2)">${fmtDate(ev.timestamp)}`;
+            if (ev.location) h += ` — ${esc(ev.location)}`;
+            h += '</div>';
+            h += `<div>${esc(ev.description)}</div>`;
+            h += '</div>';
+          }
+          h += '</div></div>';
+        }
+
+        h += '</div>';
+      }
+    }
+
+    // 注文商品
+    if (order.items && order.items.length > 0) {
+      h += '<div class="ps"><h3>注文商品</h3>';
+      h += '<table class="oi-table"><thead><tr><th>品名</th><th>SKU</th><th>数量</th><th>単価</th><th>小計</th></tr></thead><tbody>';
+      for (const it of order.items) {
+        h += `<tr><td>${esc(it.productName)}</td><td>${esc(it.sku || '-')}</td><td>${it.quantity}</td><td>${esc(it.unitPrice)}</td><td>${esc(it.subtotal)}</td></tr>`;
+      }
+      h += '</tbody></table>';
+
+      // 合計
+      if (order.totals) {
+        const t = order.totals;
+        h += '<div class="totals">';
+        if (t.productTotal) h += `<span class="tl">商品計</span><span class="tv">${esc(t.productTotal)}</span>`;
+        if (t.shippingFee) h += `<span class="tl">送料</span><span class="tv">${esc(t.shippingFee)}</span>`;
+        if (t.handlingFee) h += `<span class="tl">手数料</span><span class="tv">${esc(t.handlingFee)}</span>`;
+        if (t.discount) h += `<span class="tl">値引</span><span class="tv">${esc(t.discount)}</span>`;
+        if (t.couponDiscount) h += `<span class="tl">クーポン</span><span class="tv">${esc(t.couponDiscount)}</span>`;
+        if (t.adjustment) h += `<span class="tl">調整</span><span class="tv">${esc(t.adjustment)}</span>`;
+        if (t.grandTotal) h += `<span class="tl gt">合計</span><span class="tv gt">${esc(t.grandTotal)}</span>`;
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+
+    // 決済情報
+    if (order.payments && order.payments.length > 0) {
+      h += '<div class="ps"><h3>決済情報</h3>';
+      for (const pay of order.payments) {
+        h += '<div class="pay-item">';
+        h += `<span>${badge(pay.status, PAY_STAT[pay.status] || pay.originalStatus || '-')} ${esc(pay.method)}</span>`;
+        h += `<span style="font-weight:600">${esc(pay.amount)}</span>`;
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+  }
+
+  document.getElementById('detail-content').innerHTML = h;
+  document.getElementById('detail-panel').classList.add('open');
+}
+
+function closeDetail() {
+  S.selectedPk = null;
+  document.getElementById('detail-panel').classList.remove('open');
+  // Remove selected row highlight
+  document.querySelectorAll('tbody tr.selected').forEach(tr => tr.classList.remove('selected'));
+}
+
+// ============================================================
+// Events
+// ============================================================
+let searchTimer = null;
+function onSearchDebounce() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { S.page = 0; fetchInquiries(); }, 400);
+}
+
+function onFilterChange() {
+  S.page = 0;
+  fetchInquiries();
+}
+
+function onSort(col) {
+  if (S.sort.col === col) {
+    S.sort.asc = !S.sort.asc;
+  } else {
+    S.sort.col = col;
+    S.sort.asc = false;
+  }
+  S.page = 0;
+  fetchInquiries();
+}
+
+function goPage(p) {
+  const maxPage = Math.ceil(S.total / PAGE_SIZE) - 1;
+  S.page = Math.max(0, Math.min(p, maxPage));
+  fetchInquiries();
+  document.getElementById('table-container').scrollTop = 0;
+}
+
+function onRowClick(pk) {
+  if (S.selectedPk === pk) {
+    closeDetail();
+    return;
+  }
+  S.selectedPk = pk;
+
+  // highlight selected row
+  document.querySelectorAll('tbody tr').forEach(tr => tr.classList.remove('selected'));
+  const rows = document.querySelectorAll('tbody tr');
+  for (const tr of rows) {
+    if (tr.getAttribute('onclick')?.includes(pk)) tr.classList.add('selected');
+  }
+
+  // Find data in current rows
+  const row = S.rows.find(r => r.pk === pk);
+  if (row?.data) {
+    renderDetail(row.data);
+  }
+}
+
+// ============================================================
+// Sync
+// ============================================================
+async function startSync() {
+  const btn = document.getElementById('sync-btn');
+  btn.disabled = true;
+  btn.textContent = '同期中...';
+  try {
+    const res = await fetch('/api/sync/yahoo', { method: 'POST' });
+    const result = await res.json();
+    if (result.error) throw new Error(result.error);
+    btn.textContent = `完了 (新規${result.newCount} 更新${result.updatedCount})`;
+    await Promise.all([fetchSyncInfo(), fetchInquiries()]);
+    setTimeout(() => { btn.textContent = 'Yahoo同期'; btn.disabled = false; }, 3000);
+  } catch (e) {
+    btn.textContent = 'Yahoo同期';
+    btn.disabled = false;
+    alert('同期エラー: ' + e.message);
+  }
+}
+
+// ============================================================
+// Auth — Google OAuth via Supabase Auth
+// ============================================================
+async function loginWithGoogle() {
+  try {
+    const url = DEFAULT_URL;
+    const key = DEFAULT_KEY;
+    if (!sb) initSupabase(url, key);
+
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + window.location.pathname,
+      },
+    });
+    if (error) throw error;
+  } catch (e) {
+    const errEl = document.getElementById('login-error');
+    errEl.textContent = 'ログインエラー: ' + e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+async function logout() {
+  if (sb) {
+    await sb.auth.signOut();
+  }
+  showLoginScreen();
+}
+
+function showLoginScreen() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+}
+
+function updateUserInfo(user) {
+  const el = document.getElementById('user-info');
+  if (!user || !el) return;
+  const name = user.user_metadata?.full_name || user.email || '';
+  const avatar = user.user_metadata?.avatar_url;
+  let html = '';
+  if (avatar) html += `<img src="${esc(avatar)}" class="user-avatar" alt="">`;
+  html += `<span>${esc(name)}</span>`;
+  el.innerHTML = html;
+}
+
+// ============================================================
+// Init
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  const cfg = getConfig();
+  const url = cfg?.url || DEFAULT_URL;
+  const key = cfg?.key || DEFAULT_KEY;
+
+  initSupabase(url, key);
+
+  let appInitialized = false;
+
+  // onAuthStateChange に一本化（INITIAL_SESSION でハッシュトークン処理済み）
+  sb.auth.onAuthStateChange((event, session) => {
+    console.log('[Auth]', event, session?.user?.email || 'no user');
+
+    if (session?.user) {
+      updateUserInfo(session.user);
+      showApp();
+      if (!appInitialized) {
+        appInitialized = true;
+        initApp(url, key);
+      }
+    } else if (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT') {
+      showLoginScreen();
+    }
+  });
+});
+</script>
+</body>
+</html>
